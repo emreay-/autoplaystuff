@@ -90,7 +90,7 @@ class StreamScheduler:
 def _main():
     stream_scheduler = StreamScheduler(
         stream_player=StreamPlayer(stream_url=RADIO_EKSEN_URL),
-        start_at_utc=time(hour=7, minute=30),
+        start_at_utc=time(hour=6, minute=30),
         stop_at_utc=time(hour=19, minute=30),
     )
     stream_scheduler.run()
