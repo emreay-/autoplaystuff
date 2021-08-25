@@ -74,7 +74,7 @@ class StreamScheduler:
         self._schedule_at(self._stream_player.stop, stop_at_utc)
 
     def _schedule_at(self, f: Callable, t: time):
-        logger.info(f"Job added to call {f} at {t} everyday")
+        logger.debug(f"Job added to call {f} at {t} everyday")
         self._background_scheduler.add_job(
             func=f,
             trigger=CronTrigger(hour=t.hour, minute=t.minute, second=t.second, timezone=UTC)
