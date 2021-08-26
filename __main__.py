@@ -1,12 +1,14 @@
 import os
+import sys
 import logging
 import argparse
 from pytz import UTC
 from typing import Callable, Tuple
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 
 import vlc
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.date import DateTrigger
 from apscheduler.schedulers.background import BackgroundScheduler
 
 
@@ -68,7 +70,7 @@ class StreamPlayer:
 
 
 class StreamScheduler:
-    def __init__(self, stream_player: StreamPlayer, start_at_utc: time, stop_at_utc: time):
+    def __init__(self, stream_player: StreamPlayer, ):
         self._stream_player = stream_player
         self._background_scheduler = BackgroundScheduler(
             timezone=UTC,
@@ -79,14 +81,27 @@ class StreamScheduler:
                 }
             },
         )
-        self._schedule_at(self._stream_player.start, start_at_utc)
-        self._schedule_at(self._stream_player.stop, stop_at_utc)
 
-    def _schedule_at(self, f: Callable, t: time):
+    def repeating_time_schedule(self, start_at_utc: time, stop_at_utc: time):
+        self._schedule_repeat(self._stream_player.start, start_at_utc)
+        self._schedule_repeat(self._stream_player.stop, stop_at_utc)
+
+    def one_off_interval_schedule(self, play_for: timedelta):
+        self._stream_player.start()
+        self._schedule_one_off(self._stream_player.stop, datetime.utcnow() + play_for)
+
+    def _schedule_repeat(self, f: Callable, t: time):
         logger.debug(f"Job added to call {f} at {t} everyday")
         self._background_scheduler.add_job(
             func=f,
             trigger=CronTrigger(hour=t.hour, minute=t.minute, second=t.second, timezone=UTC)
+        )
+
+    def _schedule_one_off(self, f: Callable, t: datetime):
+        logger.debug(f"Job added to call {f} at {t} once")
+        self._background_scheduler.add_job(
+            func=f,
+            trigger=DateTrigger(run_date=t, timezone=UTC)
         )
 
     def run(self):
@@ -101,34 +116,62 @@ def to_time(t: str) -> time:
         hours, minutes = t.split(":")
         return time(hour=int(hours), minute=int(minutes))
     except Exception:
-        raise ValueError(f"Invalid hour format <{t}>, expecting hh:mm")
+        sys.exit(f"Invalid time format <{t}>, expecting hh:mm")
+
+
+def to_timedelta(t: str) -> timedelta:
+    try:
+        hours, minutes = t.split(":")
+        return timedelta(hours=int(hours), minutes=int(minutes))
+    except Exception:
+        sys.exit(f"Invalid timedelta format <{t}>, expecting hh:mm")
 
 
 def parse_arguments() -> Tuple:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--start-at", help="Start time in hh:mm format, using UTC", type=to_time, required=True)
-    parser.add_argument("--stop-at", help="Stop in hh:mm format, using UTC", type=to_time, required=True)
-    parser.add_argument("--jumpstart", help="Play the stream right away until hitting the first stop time",
-                        action="store_true")
-    args = parser.parse_args()
+    repeating_time_group = parser.add_argument_group(
+        "repeating_time_group", "Arguments to schedule playing the stream everyday between set hours"
+    )
+    repeating_time_group.add_argument(
+        "--start-at", help="Start time in hh:mm format (24hrs), using UTC", type=to_time
+    )
+    repeating_time_group.add_argument(
+        "--stop-at", help="Stop in hh:mm format (24hrs), using UTC", type=to_time
+    )
+    repeating_time_group.add_argument(
+        "--jumpstart", help="Play the stream right away until hitting the first stop time", action="store_true"
+    )
 
-    return args.start_at, args.stop_at, args.jumpstart
+    one_off_interval_group = parser.add_argument_group(
+        "one_off_interval_group", "Arguments to schedule playing the stream one time for the set interval"
+    )
+    one_off_interval_group.add_argument(
+        "--play-for", help="Interval in hh:mm format", type=to_timedelta
+    )
+
+    args = parser.parse_args()
+    if not (args.start_at or args.stop_at or args.play_for):
+        sys.exit(f"At least one of the argument groups must be provided")
+    if (args.start_at or args.stop_at) and args.play_for:
+        sys.exit(f"The time and interval based argument groups are mutually exclusive")
+    if not args.play_for and ((args.start_at is None) ^ (args.stop_at is None)):
+        sys.exit(f"Both start and stop times should be provided for this argument group")
+
+    return args.start_at, args.stop_at, args.jumpstart, args.play_for
 
 
 def _main():
-    start_at, stop_at, jumpstart = parse_arguments()
+    start_at, stop_at, jumpstart, play_for = parse_arguments()
+    stream_player = StreamPlayer(stream_url=RADIO_EKSEN_URL)
+    stream_scheduler = StreamScheduler(stream_player=stream_player)
 
-    stream_player = StreamPlayer(
-        stream_url=RADIO_EKSEN_URL
-    )
-    if jumpstart:
-        stream_player.start()
+    if start_at:
+        stream_scheduler.repeating_time_schedule(start_at_utc=start_at, stop_at_utc=stop_at)
+        if jumpstart:
+            stream_player.start()
+    elif play_for:
+        stream_scheduler.one_off_interval_schedule(play_for=play_for)
 
-    stream_scheduler = StreamScheduler(
-        stream_player=stream_player,
-        start_at_utc=start_at,
-        stop_at_utc=stop_at,
-    )
     stream_scheduler.run()
 
 
