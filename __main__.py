@@ -118,8 +118,14 @@ def parse_arguments() -> Tuple:
 def _main():
     start_at, stop_at, jumpstart = parse_arguments()
 
+    stream_player = StreamPlayer(
+        stream_url=RADIO_EKSEN_URL
+    )
+    if jumpstart:
+        stream_player.start()
+
     stream_scheduler = StreamScheduler(
-        stream_player=StreamPlayer(stream_url=RADIO_EKSEN_URL),
+        stream_player=stream_player,
         start_at_utc=start_at,
         stop_at_utc=stop_at,
     )
