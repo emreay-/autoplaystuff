@@ -1,8 +1,9 @@
 import os
 import logging
+import argparse
 from pytz import UTC
-from typing import Callable
-from datetime import datetime, timedelta, time
+from typing import Callable, Tuple
+from datetime import datetime, time
 
 import vlc
 from apscheduler.triggers.cron import CronTrigger
@@ -46,15 +47,23 @@ class StreamPlayer:
         self._player.set_media(self._media)
 
     def start(self):
-        logger.info("Stream player started")
-        self._player.play()
+        try:
+            if self._player.get_state() != vlc.State.Playing:
+                logger.info("Stream player started")
+                self._player.play()
+        except Exception as e:
+            logger.exception(f"Exception while attempting to start the player:\n{e}")
 
     def stop(self):
-        logger.info("Stream player stopped")
-        self._player.stop()
+        try:
+            if self._player.get_state() == vlc.State.Playing:
+                logger.info("Stream player stopped")
+                self._player.stop()
+        except Exception as e:
+            logger.exception(f"Exception while attempting to stop the player:\n{e}")
 
     def loop(self):
-        while self._player.get_state() != 6:
+        while self._player.get_state() != vlc.State.Ended:
             continue
 
 
@@ -87,11 +96,32 @@ class StreamScheduler:
         self._stream_player.loop()
 
 
+def to_time(t: str) -> time:
+    try:
+        hours, minutes = t.split(":")
+        return time(hour=int(hours), minute=int(minutes))
+    except Exception:
+        raise ValueError(f"Invalid hour format <{t}>, expecting hh:mm")
+
+
+def parse_arguments() -> Tuple:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--start-at", help="Start time in hh:mm format, using UTC", type=to_time, required=True)
+    parser.add_argument("--stop-at", help="Stop in hh:mm format, using UTC", type=to_time, required=True)
+    parser.add_argument("--jumpstart", help="Play the stream right away until hitting the first stop time",
+                        action="store_true")
+    args = parser.parse_args()
+
+    return args.start_at, args.stop_at, args.jumpstart
+
+
 def _main():
+    start_at, stop_at, jumpstart = parse_arguments()
+
     stream_scheduler = StreamScheduler(
         stream_player=StreamPlayer(stream_url=RADIO_EKSEN_URL),
-        start_at_utc=time(hour=6, minute=30),
-        stop_at_utc=time(hour=19, minute=30),
+        start_at_utc=start_at,
+        stop_at_utc=stop_at,
     )
     stream_scheduler.run()
 
